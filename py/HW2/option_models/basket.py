@@ -6,8 +6,7 @@ Created on Tue Sep 19 22:56:58 2017
 """
 import numpy as np
 import scipy.stats as ss
-from .bsm import bsm_formula
-from .normal import normal_formula
+import pyfeng as pf
 
 def basket_check_args(spot, vol, corr_m, weights):
     '''
@@ -38,7 +37,10 @@ def basket_price_mc_cv(
         strike, spot, spot*vol, weights, texp, cor_m,
         intr, divr, cp, False, n_samples)
     '''
-    price2 = 0
+    np.random.set_state(rand_st)  
+    price2 = basket_price_mc(
+        strike, spot, spot*vol, weights, texp, cor_m,
+        intr, divr, cp, False, n_samples)
 
     ''' 
     compute price3: analytic price based on normal model
@@ -46,7 +48,8 @@ def basket_price_mc_cv(
     price3 = basket_price_norm_analytic(
         strike, spot, vol, weights, texp, cor_m, intr, divr, cp)
     '''
-    price3 = 0
+    price3 =  basket_price_norm_analytic(
+        strike, spot, vol*spot, weights, texp, cor_m, intr, divr, cp)
     
     # return two prices: without and with CV
     return np.array([price1, price1 - (price2 - price3)])
@@ -54,7 +57,7 @@ def basket_price_mc_cv(
 
 def basket_price_mc(
     strike, spot, vol, weights, texp, cor_m,
-    intr=0.0, divr=0.0, cp=1, bsm=True, n_samples = 10000
+    intr=0.0, divr=0.0, cp=1, bsm=True, n_samples = 100000
 ):
     basket_check_args(spot, vol, cor_m, weights)
     
@@ -63,7 +66,7 @@ def basket_price_mc(
     forward = spot / disc_fac * div_fac
 
     cov_m = vol * cor_m * vol[:,None]
-    chol_m = np.linalg.cholesky(cov_m)
+    chol_m = np.linalg.cholesky(cov_m)  # L matrix in slides
 
     n_assets = spot.size
     znorm_m = np.random.normal(size=(n_assets, n_samples))
@@ -73,6 +76,8 @@ def basket_price_mc(
         PUT the simulation of the geometric brownian motion below
         '''
         prices = np.zeros_like(znorm_m)
+        for i in range(0,n_assets):        
+            prices[i] = forward[i] * np.exp(-0.5*texp*cov_m[i,i] + np.sqrt(texp)* chol_m[i]@znorm_m)
     else:
         # bsm = False: normal model
         prices = forward[:,None] + np.sqrt(texp) * chol_m @ znorm_m
@@ -94,20 +99,18 @@ def basket_price_norm_analytic(
     1. compute the forward of the basket
     2. compute the normal volatility of basket
     3. plug in the forward and volatility to the normal price formula
-    normal_formula(strike, spot, vol, texp, intr=0.0, divr=0.0, cp=1)
-    it is already imorted
+    
+    norm = pf.Norm(sigma, intr=intr, divr=divr)
+    norm.price(strike, spot, texp, cp=cp)
     
     PUT YOUR CODE BELOW
     '''
-    
-    return 0.0
+    basket_check_args(spot, vol, cor_m, weights)
+    spot_portfolio = weights @ spot
+    cov_m = vol * cor_m * vol[:,None]
+    sigma_portfolio = np.sqrt(weights @ cov_m @ weights)
 
-def spread_price_kirk(strike, spot, vol, texp, corr, intr=0, divr=0, cp=1):
-    div_fac = np.exp(-texp*divr)
-    disc_fac = np.exp(-texp*intr)
-    forward = spot / disc_fac * div_fac
-    vol2 = vol[1]*forward[1]/(forward[1]+strike)
-    vol_r = np.sqrt(vol[0]**2 + vol2*(vol2 - 2*corr*vol[0]))
-    price = disc_fac * bsm_formula(forward[1]+strike, forward[0], vol_r, texp, cp=cp)
+    norm = pf.Norm(sigma=sigma_portfolio,intr=intr)
+    price=norm.price(strike, spot_portfolio, texp, cp=cp)
 
     return price
